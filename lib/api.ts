@@ -6,13 +6,23 @@ import type {
   PropertyPayload
 } from "./types";
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api";
+function getApiBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:3000/api`;
+  }
+
+  return "http://localhost:3000/api";
+}
 
 async function request<TResponse>(
   path: string,
   options: RequestInit = {}
 ): Promise<TResponse> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -73,7 +83,7 @@ export async function uploadMedia(files: File[]): Promise<UploadedFile[]> {
   const formData = new FormData();
   files.forEach((file: File) => formData.append("files", file));
 
-  const response = await fetch(`${apiBaseUrl}/uploads`, {
+  const response = await fetch(`${getApiBaseUrl()}/uploads`, {
     method: "POST",
     body: formData
   });
