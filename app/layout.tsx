@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "dnb Homes Command Center",
-  description: "Secure management console for dnb Homes properties and appointments.",
+  description: "Secure operations console for dnb Homes listings and viewing requests.",
   icons: {
     icon: "/favicon.png",
     apple: "/favicon.png"
