@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./launch.css";
 
 export const metadata: Metadata = {
   title: "dnb Homes Command Center",

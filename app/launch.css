@@ -1,0 +1,4 @@
+.metric-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.inquiry-list article { align-items: flex-start; }
+.inquiry-list p { margin: .4rem 0; color: var(--ink); white-space: pre-wrap; }
+.inquiry-list small { color: var(--muted); }
