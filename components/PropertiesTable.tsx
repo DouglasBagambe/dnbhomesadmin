@@ -1,3 +1,140 @@
-/* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
-"use client"; import Link from "next/link"; import { useEffect, useState } from "react"; import { api, ApiPage, queryString } from "../lib/api"; import { Property } from "../lib/types"; import { PageHeader, State } from "./PageState";
-export function PropertiesTable() { const [result, setResult] = useState<ApiPage<Property>>(); const [query, setQuery] = useState(""); const [status, setStatus] = useState(""); const [error, setError] = useState(""); const [page, setPage] = useState(1); const load = () => { setError(""); api<ApiPage<Property>>(`/properties${queryString({ q: query, status, page })}`).then(setResult).catch((e) => setError(e.message)); }; useEffect(load, [page, status]); return <><PageHeader eyebrow="Inventory" title="Properties" description="Create, review, publish and archive property listings." actions={<Link className="primary button" href="/properties/new">New property</Link>}/><div className="toolbar"><input aria-label="Search properties" placeholder="Search listings" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()}/><select aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">All statuses</option><option>draft</option><option>pending_review</option><option>published</option><option>archived</option></select><button onClick={load}>Search</button></div>{error && <State tone="error">{error} <button onClick={load}>Retry</button></State>}{!result && !error && <State>Loading properties…</State>}{result?.data.length === 0 && <State>No properties match these filters.</State>}<div className="table-wrap"><table><thead><tr><th>Property</th><th>Purpose</th><th>Price</th><th>Status</th><th>Updated</th></tr></thead><tbody>{result?.data.map((item) => <tr key={item._id}><td><Link href={`/properties/${item._id}`}><strong>{item.title}</strong><span>{item.location.area || item.location.district}</span></Link></td><td>{item.purpose.replace("_", " ")}</td><td>{item.price.currency} {item.price.amount.toLocaleString()}</td><td><span className={`badge ${item.status}`}>{item.status.replace("_", " ")}</span></td><td>{new Date(item.updatedAt).toLocaleDateString()}</td></tr>)}</tbody></table></div>{result && <div className="pagination"><button disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span>Page {result.pagination.page} of {Math.max(result.pagination.pages, 1)}</span><button disabled={page >= result.pagination.pages} onClick={() => setPage(page + 1)}>Next</button></div>}</>; }
+"use client";
+import { MediaPreview } from "./MediaPreview";
+import Link from "next/link";
+import { useState } from "react";
+import { Property } from "../lib/types";
+import { label, ugandaDate } from "../lib/presentation.mjs";
+import { PageHeader, State, Badge, Pager } from "./PageState";
+import { useQueue } from "./useQueue";
+export function PropertiesTable() {
+  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState({ q: "", status: "", page: 1 });
+  const { result, loading, error, reload } = useQueue<Property>(
+    "/properties",
+    filters,
+  );
+  return (
+    <>
+      <PageHeader
+        eyebrow="Inventory"
+        title="Properties"
+        description="Manage listing details, review status and published inventory."
+        actions={
+          <Link className="primary button" href="/properties/new">
+            New property
+          </Link>
+        }
+      />
+      <form
+        className="toolbar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setFilters({ ...filters, q: query, page: 1 });
+          reload();
+        }}
+      >
+        <input
+          aria-label="Search properties"
+          placeholder="Search listings"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          aria-label="Property status"
+          value={filters.status}
+          onChange={(e) =>
+            setFilters({ ...filters, status: e.target.value, page: 1 })
+          }
+        >
+          <option value="">All statuses</option>
+          {["draft", "pending_review", "published", "archived"].map((v) => (
+            <option key={v} value={v}>
+              {label(v)}
+            </option>
+          ))}
+        </select>
+        <button>Search</button>
+      </form>
+      {error && (
+        <State tone="error">
+          {error} <button onClick={reload}>Retry</button>
+        </State>
+      )}
+      {loading && <State>Loading properties…</State>}
+      {!loading && !error && result?.data.length === 0 && (
+        <State>No properties match these filters.</State>
+      )}
+      {result && !error && (
+        <>
+          <div className="table-wrap" aria-busy={loading}>
+            <table className="responsive-table inventory-table">
+              <thead>
+                <tr>
+                  <th>Property</th>
+                  <th>Purpose</th>
+                  <th>Price</th>
+                  <th>Status</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.data.map((item) => {
+                  const image =
+                    item.cover?.url ||
+                    item.media?.find((m) => m.type === "image")?.url;
+                  return (
+                    <tr key={item._id}>
+                      <td>
+                        <Link
+                          className="property-cell"
+                          href={`/properties/${item._id}`}
+                        >
+                          {image ? (
+                            <MediaPreview key={image} compact src={image} />
+                          ) : (
+                            <span
+                              className="thumbnail-placeholder"
+                              aria-hidden="true"
+                            >
+                              H.
+                            </span>
+                          )}
+                          <div>
+                            <strong>{item.title}</strong>
+                            <span>
+                              {[item.location.area, item.location.district]
+                                .filter(Boolean)
+                                .join(" · ") || item.location.country}
+                            </span>
+                          </div>
+                        </Link>
+                      </td>
+                      <td data-label="Purpose">{label(item.purpose)}</td>
+                      <td data-label="Price" className="numeric">
+                        {item.price.currency}{" "}
+                        {item.price.amount.toLocaleString()}
+                        <span>
+                          {item.price.period === "total"
+                            ? "Total"
+                            : `per ${item.price.period}`}
+                        </span>
+                      </td>
+                      <td data-label="Status">
+                        <Badge value={item.status} />
+                      </td>
+                      <td data-label="Updated">{ugandaDate(item.updatedAt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pager
+            {...result.pagination}
+            onPage={(page) => setFilters({ ...filters, page })}
+          />
+        </>
+      )}
+    </>
+  );
+}

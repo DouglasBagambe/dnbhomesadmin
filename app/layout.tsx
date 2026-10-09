@@ -1,28 +1,35 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
-import "./launch.css";
 
 export const metadata: Metadata = {
-  title: "dnb Homes Command Center",
-  description: "Secure operations console for dnb Homes listings and viewing requests.",
+  title: "Homes Operations",
+  description:
+    "Secure operations console for Homes listings and viewing requests.",
   icons: {
     icon: "/favicon.png",
-    apple: "/favicon.png"
-  }
+    apple: "/favicon.png",
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#101827"
+  themeColor: "#123D32",
 };
 
 export default function RootLayout({
-  children
+  children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <Script
+          id="homes-theme"
+          strategy="beforeInteractive"
+        >{`try{var t=localStorage.getItem('homes-admin-theme');document.documentElement.dataset.theme=t==='light'||t==='dark'?t:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch{}`}</Script>
+        {children}
+      </body>
     </html>
   );
 }

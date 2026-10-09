@@ -1,14 +1,125 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
-import { useEffect, useState } from "react";
-import { api, ApiPage, queryString } from "../lib/api";
+import { useState } from "react";
 import { Booking } from "../lib/types";
-import { PageHeader, State } from "./PageState";
-const statuses = ["pending", "confirmed", "completed", "cancelled", "rejected", "no_show"];
+import { label, ugandaDate } from "../lib/presentation.mjs";
+import { PageHeader, State, Badge, Pager } from "./PageState";
+import { useQueue } from "./useQueue";
+import { StatusUpdate } from "./StatusUpdate";
+const statuses = [
+  "pending",
+  "confirmed",
+  "completed",
+  "cancelled",
+  "rejected",
+  "no_show",
+];
 export function BookingsPage() {
-  const [result, setResult] = useState<ApiPage<Booking>>(); const [status, setStatus] = useState(""); const [q, setQ] = useState(""); const [error, setError] = useState("");
-  const load = () => api<ApiPage<Booking>>(`/bookings${queryString({ status, q })}`).then(setResult).catch((e) => setError(e.message));
-  useEffect(() => { void load(); }, [status]);
-  async function change(item: Booking, next: string) { try { await api(`/bookings/${item._id}/status`, { method: "PATCH", body: JSON.stringify({ status: next }) }); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); } }
-  return <><PageHeader eyebrow="Viewing operations" title="Viewing requests" description="Requests remain pending until an administrator or agent confirms them."/><div className="toolbar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Reference, guest, email or phone"/><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All statuses</option>{statuses.map((v) => <option key={v}>{v}</option>)}</select><button onClick={() => void load()}>Search</button></div>{error && <State tone="error">{error}</State>}<div className="card-list">{result?.data.map((item) => <article key={item._id}><div><strong>{item.reference}</strong><span>{item.property?.title || "Unknown property"} · {new Date(item.scheduledAt).toLocaleString()}</span><span>{item.guestName} · {item.guestEmail} · {item.guestPhone}</span></div><select aria-label={`Status for ${item.reference}`} value={item.status} onChange={(e) => void change(item, e.target.value)}>{statuses.map((v) => <option key={v}>{v}</option>)}</select></article>)}</div>{result?.data.length === 0 && <State>No viewing requests match these filters.</State>}</>;
+  const [q, setQ] = useState("");
+  const [filters, setFilters] = useState({ q: "", status: "", page: 1 });
+  const { result, loading, error, reload } = useQueue<Booking>(
+    "/bookings",
+    filters,
+  );
+  return (
+    <>
+      <PageHeader
+        eyebrow="Viewing operations"
+        title="Viewing requests"
+        description="Review requests and explicitly confirm status changes. Times are Uganda time (EAT)."
+      />
+      <form
+        className="toolbar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setFilters({ ...filters, q, page: 1 });
+          reload();
+        }}
+      >
+        <input
+          aria-label="Search viewing requests"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Reference, guest, email or phone"
+        />
+        <select
+          aria-label="Viewing status"
+          value={filters.status}
+          onChange={(e) =>
+            setFilters({ ...filters, status: e.target.value, page: 1 })
+          }
+        >
+          <option value="">All statuses</option>
+          {statuses.map((v) => (
+            <option key={v} value={v}>
+              {label(v)}
+            </option>
+          ))}
+        </select>
+        <button>Search</button>
+      </form>
+      {error && (
+        <State tone="error">
+          {error} <button onClick={reload}>Retry</button>
+        </State>
+      )}
+      {loading && <State>Loading viewing requests…</State>}
+      {!loading && !error && !result?.data.length && (
+        <State>No viewing requests match these filters.</State>
+      )}
+      {result && !error && (
+        <>
+          <div className="table-wrap">
+            <table className="responsive-table">
+              <thead>
+                <tr>
+                  <th>Request / property</th>
+                  <th>Requested time · EAT</th>
+                  <th>Guest / contact</th>
+                  <th>Status</th>
+                  <th>Manage</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.data.map((item) => (
+                  <tr key={item._id}>
+                    <td>
+                      <strong>{item.reference}</strong>
+                      <span>
+                        {item.property?.title || "Property unavailable"}
+                      </span>
+                    </td>
+                    <td data-label="Requested time · EAT">
+                      {ugandaDate(item.scheduledAt, true)}
+                    </td>
+                    <td data-label="Guest">
+                      <strong>{item.guestName || "Guest"}</strong>
+                      <span>{item.guestEmail}</span>
+                      <span>{item.guestPhone}</span>
+                    </td>
+                    <td data-label="Status">
+                      <Badge value={item.status} />
+                    </td>
+                    <td>
+                      <StatusUpdate
+                        key={`${item._id}-${item.status}`}
+                        status={item.status}
+                        options={statuses}
+                        path={`/bookings/${item._id}/status`}
+                        name={item.reference}
+                        onSaved={reload}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pager
+            {...result.pagination}
+            onPage={(page) => setFilters({ ...filters, page })}
+          />
+        </>
+      )}
+    </>
+  );
 }

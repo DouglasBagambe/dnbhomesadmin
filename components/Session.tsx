@@ -1,5 +1,14 @@
 "use client";
-import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
+import { friendlyError } from "../lib/presentation.mjs";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useRef,
+  ReactNode,
+} from "react";
+import { State } from "./PageState";
 import { api } from "../lib/api";
 import { AdminUser } from "../lib/types";
 const SessionContext = createContext<AdminUser | null>(null);
@@ -11,10 +20,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     pending.current ??= api<{ data: AdminUser }>("/session");
-    pending.current.then(({ data }) => { if (active) setAdmin(data); }).catch((e) => { if (active) setError(e.message); });
-    return () => { active = false; };
+    pending.current
+      .then(({ data }) => {
+        if (active) setAdmin(data);
+      })
+      .catch((e) => {
+        if (active) setError(friendlyError(e));
+      });
+    return () => {
+      active = false;
+    };
   }, []);
-  if (error) return <div role="alert">{error} <button onClick={() => window.location.reload()}>Retry</button></div>;
-  if (!admin) return <p>Checking your session…</p>;
-  return <SessionContext.Provider value={admin}>{children}</SessionContext.Provider>;
+  if (error)
+    return (
+      <main className="admin-main">
+        <State tone="error">
+          {error}{" "}
+          <button onClick={() => window.location.reload()}>Retry</button>
+        </State>
+      </main>
+    );
+  if (!admin)
+    return (
+      <main className="admin-main">
+        <State>Checking your session…</State>
+      </main>
+    );
+  return (
+    <SessionContext.Provider value={admin}>{children}</SessionContext.Provider>
+  );
 }
