@@ -203,18 +203,11 @@ button svg {
   color: var(--ink);
   padding: 0 8px 28px;
 }
-.brand-mark {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  font-size: 23px;
-  letter-spacing: -2px;
-  background: #123d32;
-  color: #f7f4ee;
-  border-radius: 9px;
-  font-weight: 600;
-}
+.brand-mark { width: 44px; height: 44px; flex: 0 0 auto; }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; }
+.brand-mark .mark-on-dark { display: none; }
+:root[data-theme="dark"] .brand-mark .mark-on-light { display: none; }
+:root[data-theme="dark"] .brand-mark .mark-on-dark { display: block; }
 .brand strong {
   display: block;
   font-size: 16px;

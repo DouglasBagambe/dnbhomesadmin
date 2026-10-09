@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 type Theme = "system" | "light" | "dark";
 export function ThemeControl() {
@@ -50,7 +51,8 @@ export function Brand() {
   return (
     <div className="brand">
       <span className="brand-mark" aria-hidden="true">
-        H.
+        <Image className="mark-on-light" src="/brand/logo-light.svg" width={499} height={499} alt="" />
+        <Image className="mark-on-dark" src="/brand/logo-dark.svg" width={499} height={499} alt="" />
       </span>
       <div>
         <strong>HOMES</strong>

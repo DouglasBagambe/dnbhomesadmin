@@ -96,7 +96,7 @@ export function PropertiesTable() {
                               className="thumbnail-placeholder"
                               aria-hidden="true"
                             >
-                              H.
+                              —
                             </span>
                           )}
                           <div>

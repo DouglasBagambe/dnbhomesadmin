@@ -16,7 +16,7 @@ export function MediaPreview({
       className={compact ? "thumbnail-placeholder" : "video-preview"}
       aria-label="Image preview unavailable"
     >
-      {compact ? "H." : "Preview unavailable"}
+      {compact ? "—" : "Preview unavailable"}
     </span>
   ) : (
     <Image
