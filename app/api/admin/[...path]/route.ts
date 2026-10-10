@@ -22,13 +22,22 @@ async function proxyInternal(request: Request, context: Context) {
   const store = await cookies(); let accessToken = store.get("homes_access")?.value; let refreshToken = store.get("homes_refresh")?.value; let rotated: TokenResult | null = null;
   if (!accessToken && refreshToken) { rotated = await rotate(refreshToken); accessToken = rotated?.accessToken; refreshToken = rotated?.refreshToken; }
   if (!accessToken) return NextResponse.json({ error: { message: "Authentication required" } }, { status: 401 });
-  const { path } = await context.params; const incoming = new URL(request.url); const contentType = request.headers.get("content-type"); const requestBody = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
+  const { path } = await context.params; const incoming = new URL(request.url); const contentType = request.headers.get("content-type"); let requestBody = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
+  const uploadTicket = path.join("/") === "media/tickets" && request.method === "POST";
+  if (uploadTicket) requestBody = new TextEncoder().encode(JSON.stringify({ origin: incoming.origin })).buffer;
   const call = (token: string) => backend(path.length === 1 && path[0] === "session" && request.method === "GET" ? "/auth/admin/me" : `/admin/${path.map(encodeURIComponent).join("/")}${incoming.search}`, { method: request.method, headers: { Authorization: `Bearer ${token}`, ...(contentType ? { "Content-Type": contentType } : {}) }, body: requestBody });
   let backendResponse = await call(accessToken);
   if (backendResponse.status === 401 && refreshToken) { rotated = await rotate(refreshToken); if (rotated) { accessToken = rotated.accessToken; refreshToken = rotated.refreshToken; backendResponse = await call(accessToken); } }
-  const response = new NextResponse(backendResponse.body, { status: backendResponse.status, headers: { "Content-Type": backendResponse.headers.get("content-type") || "application/json" } });
+  let responseBody = backendResponse.body;
+  if (uploadTicket && backendResponse.ok) {
+    const result = await backendResponse.json();
+    result.data.uploadUrl = `${process.env.API_BASE_URL!.replace(/\/+$/, "")}/media/uploads`;
+    responseBody = new Response(JSON.stringify(result)).body;
+  }
+  const response = new NextResponse(responseBody, { status: backendResponse.status, headers: { "Content-Type": backendResponse.headers.get("content-type") || "application/json" } });
   const retryAfter = backendResponse.headers.get("retry-after");
   if (retryAfter) response.headers.set("Retry-After", retryAfter);
+  if (uploadTicket) response.headers.set("Cache-Control", "no-store");
   if (rotated) { response.cookies.set("homes_access", rotated.accessToken, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 15 * 60 }); response.cookies.set("homes_refresh", rotated.refreshToken, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 30 * 86400 }); }
   return response;
 }

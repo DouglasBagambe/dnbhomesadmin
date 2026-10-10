@@ -1,4 +1,5 @@
 "use client";
+import { mediaBatches } from "../lib/media-batches.mjs";
 import { MediaPreview } from "./MediaPreview";
 import { useFeedback } from "./Feedback";
 import { useSession } from "./Session";
@@ -71,6 +72,9 @@ export function PropertyEditor({ id }: { id?: string }) {
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [mediaBusy, setMediaBusy] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -123,30 +127,32 @@ export function PropertyEditor({ id }: { id?: string }) {
         })
         .finally(() => setLoading(false));
   }, [id]);
-  async function upload(files: FileList | null) {
-    if (!files?.length) return;
-    const body = new FormData();
-    Array.from(files).forEach((file) => body.append("files", file));
-    setMediaBusy(true);
-    setError("");
+  async function upload(files: File[] | null, retry = false) {
+    if (!files?.length || mediaBusy) return;
+    let batches: File[][];
+    try { batches = mediaBatches(files, form.media.length); } catch (e) { setError(friendlyError(e)); return; }
+    setMediaBusy(true); setError("");
+    if (!retry) setUploadProgress({ done: 0, total: files.length });
+    let remaining = [...files];
+    setPendingFiles(remaining);
     try {
-      const result = await api<{
-        data: Array<{
-          _id: string;
-          key: string;
-          url: string;
-          type: "image" | "video";
-        }>;
-      }>("/media", { method: "POST", body });
-      setForm((current) => ({
-        ...current,
-        media: [...current.media, ...result.data],
-      }));
-    } catch (e) {
-      setError(friendlyError(e));
-    } finally {
-      setMediaBusy(false);
-    }
+      for (const batch of batches) {
+        const body = new FormData(); batch.forEach(file => body.append("files", file));
+        const grant = await api<{data:{token:string;uploadUrl:string}}>("/media/tickets", {method:"POST", body:JSON.stringify({})});
+        const response = await fetch(grant.data.uploadUrl, {method:"POST", headers:{"X-Media-Upload-Token":grant.data.token}, body, credentials:"omit"});
+        if (!response.ok) throw new Error(`Upload failed (${response.status}). Retry the remaining files.`);
+        const result = await response.json() as { data: Media[] };
+        if (result.data.length !== batch.length) throw new Error("The upload returned an incomplete batch. Please check the media before retrying.");
+        setForm(current => ({ ...current, media: [...current.media, ...result.data] }));
+        remaining = remaining.slice(batch.length); setPendingFiles(remaining);
+        setUploadProgress(current => ({ ...current, done: current.done + batch.length }));
+      }
+    } catch (e) { setError(`Upload paused. Completed files are kept; ${remaining.length} files remain. ${friendlyError(e)}`); }
+    finally { setMediaBusy(false); }
+  }
+  function moveTo(from: number, position: number) {
+    if (mediaBusy || position < 0 || position >= form.media.length) return;
+    setForm(current => { const media = [...current.media]; const [item] = media.splice(from, 1); media.splice(position, 0, item); return { ...current, media }; });
   }
   async function removeMedia(index: number) {
     const item = form.media[index];
@@ -428,20 +434,24 @@ export function PropertyEditor({ id }: { id?: string }) {
                 <input
                   type="file"
                   multiple
+                  disabled={mediaBusy || pendingFiles.length > 0}
                   accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm"
                   onChange={(e) => {
-                    void upload(e.target.files);
+                    void upload(e.target.files ? Array.from(e.target.files) : null);
                     e.target.value = "";
                   }}
                 />
               </label>
-              {mediaBusy && <State>Processing media… Please wait.</State>}
+              {uploadProgress.total > 0 && <p role="status" aria-live="polite">Uploaded {uploadProgress.done} of {uploadProgress.total}</p>}
+              {!!pendingFiles.length && !mediaBusy && <div className="media-actions"><button type="button" onClick={() => void upload(pendingFiles, true)}>Retry remaining {pendingFiles.length} files</button><button type="button" onClick={() => setPendingFiles([])}>Discard remaining selection</button></div>}
+              <small>Up to 40 items; JPEG, PNG, WebP, AVIF ≤10 MB; MP4/WebM ≤50 MB. Uploads are batched at ≤10 files and ≤100 MB.</small>
+              {mediaBusy && <State>Uploading media… Completed files stay in the editor.</State>}
               {!form.media.length && (
                 <p className="muted">No media added yet.</p>
               )}
               <div className="media-list">
                 {form.media.map((item, index) => (
-                  <article key={`${item.url}-${index}`}>
+                  <article key={`${item.url}-${index}`} draggable={!mediaBusy} onDragStart={() => setDragIndex(index)} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (dragIndex !== null) moveTo(dragIndex, index); setDragIndex(null); }} onDragEnd={() => setDragIndex(null)}>
                     {item.type === "image" ? (
                       <MediaPreview
                         key={item.url}
@@ -449,7 +459,7 @@ export function PropertyEditor({ id }: { id?: string }) {
                         alt={item.alt || "Property image preview"}
                       />
                     ) : (
-                      <div className="video-preview">Video</div>
+                      <video className="video-preview" controls playsInline preload="metadata" src={item.url} aria-label={item.alt || `Video ${index + 1}`} />
                     )}
                     <div className="media-details">
                       <strong>
@@ -480,23 +490,25 @@ export function PropertyEditor({ id }: { id?: string }) {
                           />
                         </label>
                       )}
+                      <label>Position <input type="number" min={1} max={form.media.length} value={index + 1} disabled={mediaBusy} aria-label={`Position of media ${index + 1}`} onChange={event => moveTo(index, Number(event.target.value) - 1)} /></label>
                       <div className="media-actions">
                         <button
                           type="button"
-                          disabled={index === 0}
+                          disabled={mediaBusy || index === 0}
                           onClick={() => move(index, -1)}
                         >
                           Move up
                         </button>
                         <button
                           type="button"
-                          disabled={index === form.media.length - 1}
+                          disabled={mediaBusy || index === form.media.length - 1}
                           onClick={() => move(index, 1)}
                         >
                           Move down
                         </button>
                         <button
                           className="danger-text"
+                          disabled={mediaBusy}
                           type="button"
                           onClick={() => void removeMedia(index)}
                         >
