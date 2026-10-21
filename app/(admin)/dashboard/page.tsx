@@ -1,79 +1,112 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { api } from "../../../lib/api";
 import { friendlyError } from "../../../lib/presentation.mjs";
 import { useSession } from "../../../components/Session";
-import { api } from "../../../lib/api";
 import { PageHeader, State } from "../../../components/PageState";
 type Summary = {
   properties: number;
   published: number;
-  pendingBookings: number;
+  drafts: number;
+  pendingReview: number;
+  archived: number;
+  verified: number;
+  unverified: number;
   agents: number;
-  newInquiries: number;
+  pendingBookings?: number;
+  todayBookings?: number;
+  upcomingBookings?: number;
+  newInquiries?: number;
 };
 export default function Dashboard() {
   const admin = useSession();
-  const [data, setData] = useState<Summary>();
-  const [error, setError] = useState("");
+  const [data, setData] = useState<Summary>(),
+    [error, setError] = useState("");
   const load = () => {
     setError("");
     api<{ data: Summary }>("/dashboard")
-      .then((v) => setData(v.data))
+      .then((r) => setData(r.data))
       .catch((e) => setError(friendlyError(e)));
   };
-  useEffect(load, []);
+  useEffect(() => {
+    queueMicrotask(load);
+  }, []);
+  const metrics: [
+    [string, number | undefined],
+    ...[string, number | undefined][],
+  ] = [
+    ["Active inventory", data?.properties],
+    ["Published", data?.published],
+    ["Drafts", data?.drafts],
+    ["In review", data?.pendingReview],
+    ["Archived", data?.archived],
+    ["Verified active", data?.verified],
+    ["Active agents", data?.agents],
+  ];
+  if (admin?.role !== "editor")
+    metrics.push(
+      ["Pending viewings", data?.pendingBookings],
+      ["Viewings today · EAT", data?.todayBookings],
+      ["Upcoming viewings", data?.upcomingBookings],
+      ["New inquiries", data?.newInquiries],
+    );
   return (
     <>
       <PageHeader
-        eyebrow="Operations"
+        eyebrow="Operations overview"
         title="Dashboard"
-        description="A focused view of current inventory, viewing requests and inquiry workload."
+        description="Current inventory and the work that needs your attention. Counts reflect recorded operations."
+        actions={
+          <Link className="primary button" href="/properties/new">
+            New property
+          </Link>
+        }
       />
       {error && (
         <State tone="error">
-          {error} <button onClick={load}>Retry</button>
+          {error}
+          <button onClick={load}>Retry</button>
         </State>
       )}
       <section className="metric-grid">
-        {[
-          ["Listings", data?.properties],
-          ["Published", data?.published],
-          ["Pending viewings", data?.pendingBookings],
-          ["Active agents", data?.agents],
-          ["New inquiries", data?.newInquiries],
-        ].map(([label, value]) => (
-          <article className="metric" key={String(label)}>
-            <span>{label}</span>
+        {metrics.map(([text, value]) => (
+          <article className="metric" key={text}>
+            <span>{text}</span>
             <strong>{value ?? "—"}</strong>
           </article>
         ))}
       </section>
-      {!data && !error && <State>Loading current operations…</State>}
+      {!data && !error && <State>Loading operations…</State>}
       {data && (
         <section className="operation-panel">
           <div>
+            <p className="eyebrow">Next actions</p>
             <h2>Work queues</h2>
-            <p>Current workload, without historical estimates.</p>
+            <p>Open a filtered queue to resolve the next item.</p>
           </div>
           <div className="queue-links">
-            <Link href="/properties">
-              <span>Unpublished inventory</span>
-              <strong>{data.properties - data.published}</strong>
-              <small>Draft and review listings</small>
+            <Link href="/properties?status=pending_review">
+              <span>Listings awaiting review</span>
+              <strong>{data.pendingReview}</strong>
+              <small>Review content and publishing readiness →</small>
+            </Link>
+            <Link href="/properties?verificationStatus=unverified&status=active">
+              <span>Unverified listings</span>
+              <strong>{data.unverified}</strong>
+              <small>Review active and draft inventory →</small>
             </Link>
             {admin?.role !== "editor" && (
               <>
-                <Link href="/bookings">
-                  <span>Pending viewings</span>
+                <Link href="/bookings?status=pending">
+                  <span>Pending viewing requests</span>
                   <strong>{data.pendingBookings}</strong>
-                  <small>Review requests awaiting confirmation</small>
+                  <small>Confirm schedules and record notes →</small>
                 </Link>
-                <Link href="/inquiries">
+                <Link href="/inquiries?status=new">
                   <span>New inquiries</span>
                   <strong>{data.newInquiries}</strong>
-                  <small>Review incoming messages</small>
+                  <small>Review messages and next steps →</small>
                 </Link>
               </>
             )}

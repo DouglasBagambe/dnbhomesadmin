@@ -1,4 +1,9 @@
 "use client";
+import Link from "next/link";
+import { UnsavedChanges } from "./UnsavedChanges";
+import { PropertyDangerZone } from "./PropertyDangerZone";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { uploadMediaBatch } from "../lib/media-upload.mjs";
 import { mediaBatches } from "../lib/media-batches.mjs";
 import { MediaPreview } from "./MediaPreview";
 import { useFeedback } from "./Feedback";
@@ -17,6 +22,8 @@ type Form = {
   amount: string;
   currency: string;
   period: string;
+  latitude: string;
+  longitude: string;
   country: string;
   region: string;
   district: string;
@@ -43,6 +50,8 @@ const blank: Form = {
   amount: "",
   currency: "UGX",
   period: "month",
+  latitude: "",
+  longitude: "",
   country: "Uganda",
   region: "",
   district: "",
@@ -68,6 +77,9 @@ export function PropertyEditor({ id }: { id?: string }) {
   const canPublish = admin?.role === "super_admin" || admin?.role === "admin";
   const router = useRouter();
   const [form, setForm] = useState<Form>(blank);
+  const [baseline, setBaseline] = useState(JSON.stringify(blank));
+  const dirty = JSON.stringify(form) !== baseline;
+  const [removeIndex, setRemoveIndex] = useState<number | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -75,6 +87,11 @@ export function PropertyEditor({ id }: { id?: string }) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [storage, setStorage] = useState<{
+    durable: boolean;
+    configured: boolean;
+    warning?: string;
+  }>();
   const [mediaBusy, setMediaBusy] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -82,6 +99,11 @@ export function PropertyEditor({ id }: { id?: string }) {
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
   useEffect(() => {
+    api<{ data: { durable: boolean; configured: boolean; warning?: string } }>(
+      "/media/health",
+    )
+      .then((r) => setStorage(r.data))
+      .catch(() => {});
     Promise.all([
       api<ApiPage<Agent>>("/agents?limit=100"),
       api<ApiPage<Agency>>("/agencies?limit=100"),
@@ -93,8 +115,8 @@ export function PropertyEditor({ id }: { id?: string }) {
       .catch((e) => setError(friendlyError(e)));
     if (id)
       api<{ data: Property }>(`/properties/${id}`)
-        .then(({ data }) =>
-          setForm({
+        .then(({ data }) => {
+          const next: Form = {
             title: data.title,
             description: data.description,
             purpose: data.purpose,
@@ -102,6 +124,8 @@ export function PropertyEditor({ id }: { id?: string }) {
             amount: String(data.price.amount),
             currency: data.price.currency,
             period: data.price.period,
+            latitude: field(data.location.coordinates?.coordinates[1]),
+            longitude: field(data.location.coordinates?.coordinates[0]),
             country: data.location.country,
             region: data.location.region,
             district: data.location.district,
@@ -119,8 +143,10 @@ export function PropertyEditor({ id }: { id?: string }) {
             status: data.status,
             featured: data.featured,
             media: data.media || [],
-          }),
-        )
+          };
+          setForm(next);
+          setBaseline(JSON.stringify(next));
+        })
         .catch((e) => {
           setLoadFailed(true);
           setError(friendlyError(e));
@@ -130,48 +156,78 @@ export function PropertyEditor({ id }: { id?: string }) {
   async function upload(files: File[] | null, retry = false) {
     if (!files?.length || mediaBusy) return;
     let batches: File[][];
-    try { batches = mediaBatches(files, form.media.length); } catch (e) { setError(friendlyError(e)); return; }
-    setMediaBusy(true); setError("");
+    try {
+      batches = mediaBatches(files, form.media.length);
+    } catch (e) {
+      setError(friendlyError(e));
+      return;
+    }
+    setMediaBusy(true);
+    setError("");
     if (!retry) setUploadProgress({ done: 0, total: files.length });
     let remaining = [...files];
     setPendingFiles(remaining);
     try {
       for (const batch of batches) {
-        const body = new FormData(); batch.forEach(file => body.append("files", file));
-        const grant = await api<{data:{token:string;uploadUrl:string}}>("/media/tickets", {method:"POST", body:JSON.stringify({})});
-        const response = await fetch(grant.data.uploadUrl, {method:"POST", headers:{"X-Media-Upload-Token":grant.data.token}, body, credentials:"omit"});
-        if (!response.ok) throw new Error(`Upload failed (${response.status}). Retry the remaining files.`);
-        const result = await response.json() as { data: Media[] };
-        if (result.data.length !== batch.length) throw new Error("The upload returned an incomplete batch. Please check the media before retrying.");
-        setForm(current => ({ ...current, media: [...current.media, ...result.data] }));
-        remaining = remaining.slice(batch.length); setPendingFiles(remaining);
-        setUploadProgress(current => ({ ...current, done: current.done + batch.length }));
+        const media = await uploadMediaBatch(batch, {
+          issueTicket: async () =>
+            (
+              await api<{ data: { token: string; uploadUrl: string } }>(
+                "/media/tickets",
+                { method: "POST", body: JSON.stringify({}) },
+              )
+            ).data,
+        });
+        setForm((current) => ({
+          ...current,
+          media: [...current.media, ...media],
+        }));
+        remaining = remaining.slice(batch.length);
+        setPendingFiles(remaining);
+        setUploadProgress((current) => ({
+          ...current,
+          done: current.done + batch.length,
+        }));
       }
-    } catch (e) { setError(`Upload paused. Completed files are kept; ${remaining.length} files remain. ${friendlyError(e)}`); }
-    finally { setMediaBusy(false); }
-  }
-  function moveTo(from: number, position: number) {
-    if (mediaBusy || position < 0 || position >= form.media.length) return;
-    setForm(current => { const media = [...current.media]; const [item] = media.splice(from, 1); media.splice(position, 0, item); return { ...current, media }; });
-  }
-  async function removeMedia(index: number) {
-    const item = form.media[index];
-    setMediaBusy(true);
-    setError("");
-    try {
-      if (item._id) await api(`/media/${item._id}`, { method: "DELETE" });
-      set(
-        "media",
-        form.media.filter((_, i) => i !== index),
-      );
     } catch (e) {
-      setError(friendlyError(e));
+      setError(
+        `Upload paused. Completed files are kept; ${remaining.length} files remain. ${friendlyError(e)}`,
+      );
     } finally {
       setMediaBusy(false);
     }
   }
+  function moveTo(from: number, position: number) {
+    if (mediaBusy || position < 0 || position >= form.media.length) return;
+    setForm((current) => {
+      const media = [...current.media];
+      const [item] = media.splice(from, 1);
+      media.splice(position, 0, item);
+      return { ...current, media };
+    });
+  }
+  function removeMedia(index: number) {
+    setForm((current) => ({
+      ...current,
+      media: current.media.filter((_, i) => i !== index),
+    }));
+    setRemoveIndex(null);
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (
+      (form.latitude === "") !== (form.longitude === "") ||
+      (form.latitude !== "" &&
+        (!Number.isFinite(Number(form.latitude)) ||
+          Math.abs(Number(form.latitude)) > 90 ||
+          !Number.isFinite(Number(form.longitude)) ||
+          Math.abs(Number(form.longitude)) > 180))
+    ) {
+      setError(
+        "Enter both latitude (-90 to 90) and longitude (-180 to 180), or leave both blank.",
+      );
+      return;
+    }
     setSaving(true);
     setError("");
     const list = (text: string) =>
@@ -195,6 +251,13 @@ export function PropertyEditor({ id }: { id?: string }) {
         district: form.district,
         area: form.area,
         address: form.address,
+        coordinates:
+          form.latitude === ""
+            ? null
+            : {
+                type: "Point",
+                coordinates: [Number(form.longitude), Number(form.latitude)],
+              },
       },
       bedrooms: form.bedrooms ? Number(form.bedrooms) : undefined,
       bathrooms: form.bathrooms ? Number(form.bathrooms) : undefined,
@@ -226,6 +289,7 @@ export function PropertyEditor({ id }: { id?: string }) {
         id ? `/properties/${id}` : "/properties",
         { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) },
       );
+      setBaseline(JSON.stringify(form));
       notify("Property saved.");
       router.replace(`/properties/${result.data._id}`);
       router.refresh();
@@ -255,7 +319,16 @@ export function PropertyEditor({ id }: { id?: string }) {
         <input
           type={type}
           step={type === "number" ? "any" : undefined}
-          min={type === "number" ? "0" : undefined}
+          min={
+            key === "latitude"
+              ? -90
+              : key === "longitude"
+                ? -180
+                : type === "number"
+                  ? 0
+                  : undefined
+          }
+          max={key === "latitude" ? 90 : key === "longitude" ? 180 : undefined}
           required={required}
           value={String(form[key])}
           onChange={(e) => set(key, e.target.value as never)}
@@ -305,6 +378,7 @@ export function PropertyEditor({ id }: { id?: string }) {
   }
   return (
     <>
+      <UnsavedChanges dirty={dirty && !saving} />
       <PageHeader
         eyebrow="Inventory"
         title={id ? "Edit property" : "New property"}
@@ -387,6 +461,25 @@ export function PropertyEditor({ id }: { id?: string }) {
                     key === "country",
                   ),
                 )}
+                {input("latitude", "Latitude", false, "number")}
+                {input("longitude", "Longitude", false, "number")}
+                <p className="wide muted">
+                  Coordinates are optional. Use decimal degrees; latitude first,
+                  longitude second.
+                </p>
+                {form.latitude &&
+                  form.longitude &&
+                  Math.abs(Number(form.latitude)) <= 90 &&
+                  Math.abs(Number(form.longitude)) <= 180 && (
+                    <a
+                      className="wide"
+                      target="_blank"
+                      rel="noreferrer"
+                      href={`https://www.openstreetmap.org/?mlat=${encodeURIComponent(form.latitude)}&mlon=${encodeURIComponent(form.longitude)}#map=16/${encodeURIComponent(form.latitude)}/${encodeURIComponent(form.longitude)}`}
+                    >
+                      Preview coordinates on OpenStreetMap ↗
+                    </a>
+                  )}
               </div>
             </section>
             <section>
@@ -394,8 +487,12 @@ export function PropertyEditor({ id }: { id?: string }) {
                 <h2>Property details</h2>
               </header>
               <div className="form-grid">
-                {input("bedrooms", "Bedrooms", false, "number")}
-                {input("bathrooms", "Bathrooms", false, "number")}
+                {!["land", "commercial"].includes(form.type) && (
+                  <>
+                    {input("bedrooms", "Bedrooms", false, "number")}
+                    {input("bathrooms", "Bathrooms", false, "number")}
+                  </>
+                )}
                 {input("size", "Size", false, "number")}
                 {select("sizeUnit", "Size unit", [
                   "sqm",
@@ -425,6 +522,12 @@ export function PropertyEditor({ id }: { id?: string }) {
             <section>
               <header>
                 <h2>Media</h2>
+                {storage && !storage.durable && (
+                  <p className="warning-panel">
+                    {storage.warning} Configure durable S3/R2 storage before
+                    adding real property media.
+                  </p>
+                )}
                 <p>
                   The first image is the cover. Reorder images before saving.
                 </p>
@@ -437,21 +540,57 @@ export function PropertyEditor({ id }: { id?: string }) {
                   disabled={mediaBusy || pendingFiles.length > 0}
                   accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm"
                   onChange={(e) => {
-                    void upload(e.target.files ? Array.from(e.target.files) : null);
+                    void upload(
+                      e.target.files ? Array.from(e.target.files) : null,
+                    );
                     e.target.value = "";
                   }}
                 />
               </label>
-              {uploadProgress.total > 0 && <p role="status" aria-live="polite">Uploaded {uploadProgress.done} of {uploadProgress.total}</p>}
-              {!!pendingFiles.length && !mediaBusy && <div className="media-actions"><button type="button" onClick={() => void upload(pendingFiles, true)}>Retry remaining {pendingFiles.length} files</button><button type="button" onClick={() => setPendingFiles([])}>Discard remaining selection</button></div>}
-              <small>Up to 40 items; JPEG, PNG, WebP, AVIF ≤10 MB; MP4/WebM ≤50 MB. Uploads are batched at ≤10 files and ≤100 MB.</small>
-              {mediaBusy && <State>Uploading media… Completed files stay in the editor.</State>}
+              {uploadProgress.total > 0 && (
+                <p role="status" aria-live="polite">
+                  Uploaded {uploadProgress.done} of {uploadProgress.total}
+                </p>
+              )}
+              {!!pendingFiles.length && !mediaBusy && (
+                <div className="media-actions">
+                  <button
+                    type="button"
+                    onClick={() => void upload(pendingFiles, true)}
+                  >
+                    Retry remaining {pendingFiles.length} files
+                  </button>
+                  <button type="button" onClick={() => setPendingFiles([])}>
+                    Discard remaining selection
+                  </button>
+                </div>
+              )}
+              <small>
+                Up to 40 items; JPEG, PNG, WebP, AVIF ≤10 MB; MP4/WebM ≤50 MB.
+                Uploads are batched at ≤10 files and ≤100 MB.
+              </small>
+              {mediaBusy && (
+                <State>
+                  Uploading media… Completed files stay in the editor.
+                </State>
+              )}
               {!form.media.length && (
                 <p className="muted">No media added yet.</p>
               )}
               <div className="media-list">
                 {form.media.map((item, index) => (
-                  <article key={`${item.url}-${index}`} draggable={!mediaBusy} onDragStart={() => setDragIndex(index)} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (dragIndex !== null) moveTo(dragIndex, index); setDragIndex(null); }} onDragEnd={() => setDragIndex(null)}>
+                  <article
+                    key={`${item.url}-${index}`}
+                    draggable={!mediaBusy}
+                    onDragStart={() => setDragIndex(index)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (dragIndex !== null) moveTo(dragIndex, index);
+                      setDragIndex(null);
+                    }}
+                    onDragEnd={() => setDragIndex(null)}
+                  >
                     {item.type === "image" ? (
                       <MediaPreview
                         key={item.url}
@@ -459,9 +598,20 @@ export function PropertyEditor({ id }: { id?: string }) {
                         alt={item.alt || "Property image preview"}
                       />
                     ) : (
-                      <video className="video-preview" controls playsInline preload="metadata" src={item.url} aria-label={item.alt || `Video ${index + 1}`} />
+                      <video
+                        className="video-preview"
+                        controls
+                        playsInline
+                        preload="metadata"
+                        src={item.url}
+                        aria-label={item.alt || `Video ${index + 1}`}
+                      />
                     )}
                     <div className="media-details">
+                      <span className="badge">
+                        {item.type === "image" ? "Image" : "Video"} · Drag to
+                        reorder
+                      </span>
                       <strong>
                         {item.type === "image" &&
                         form.media.findIndex((m) => m.type === "image") ===
@@ -490,7 +640,20 @@ export function PropertyEditor({ id }: { id?: string }) {
                           />
                         </label>
                       )}
-                      <label>Position <input type="number" min={1} max={form.media.length} value={index + 1} disabled={mediaBusy} aria-label={`Position of media ${index + 1}`} onChange={event => moveTo(index, Number(event.target.value) - 1)} /></label>
+                      <label>
+                        Position{" "}
+                        <input
+                          type="number"
+                          min={1}
+                          max={form.media.length}
+                          value={index + 1}
+                          disabled={mediaBusy}
+                          aria-label={`Position of media ${index + 1}`}
+                          onChange={(event) =>
+                            moveTo(index, Number(event.target.value) - 1)
+                          }
+                        />
+                      </label>
                       <div className="media-actions">
                         <button
                           type="button"
@@ -501,7 +664,9 @@ export function PropertyEditor({ id }: { id?: string }) {
                         </button>
                         <button
                           type="button"
-                          disabled={mediaBusy || index === form.media.length - 1}
+                          disabled={
+                            mediaBusy || index === form.media.length - 1
+                          }
                           onClick={() => move(index, 1)}
                         >
                           Move down
@@ -510,7 +675,7 @@ export function PropertyEditor({ id }: { id?: string }) {
                           className="danger-text"
                           disabled={mediaBusy}
                           type="button"
-                          onClick={() => void removeMedia(index)}
+                          onClick={() => setRemoveIndex(index)}
                         >
                           Remove
                         </button>
@@ -567,14 +732,27 @@ export function PropertyEditor({ id }: { id?: string }) {
                   <select
                     aria-label="Agent"
                     value={form.agent}
-                    onChange={(e) => set("agent", e.target.value)}
+                    onChange={(e) => {
+                      const agent = agents.find(
+                        (a) => a._id === e.target.value,
+                      );
+                      setForm((current) => ({
+                        ...current,
+                        agent: e.target.value,
+                        agency: agent?.agency?._id || "",
+                      }));
+                    }}
                   >
                     <option value="">Unassigned</option>
-                    {agents.map((a) => (
-                      <option key={a._id} value={a._id}>
-                        {a.name}
-                      </option>
-                    ))}
+                    {agents
+                      .filter(
+                        (a) => a.status === "active" || a._id === form.agent,
+                      )
+                      .map((a) => (
+                        <option key={a._id} value={a._id}>
+                          {a.name}
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <label>
@@ -582,14 +760,21 @@ export function PropertyEditor({ id }: { id?: string }) {
                   <select
                     aria-label="Agency"
                     value={form.agency}
+                    disabled={Boolean(
+                      agents.find((a) => a._id === form.agent)?.agency,
+                    )}
                     onChange={(e) => set("agency", e.target.value)}
                   >
                     <option value="">Unassigned</option>
-                    {agencies.map((a) => (
-                      <option key={a._id} value={a._id}>
-                        {a.name}
-                      </option>
-                    ))}
+                    {agencies
+                      .filter(
+                        (a) => a.status === "active" || a._id === form.agency,
+                      )
+                      .map((a) => (
+                        <option key={a._id} value={a._id}>
+                          {a.name}
+                        </option>
+                      ))}
                   </select>
                 </label>
               </div>
@@ -597,12 +782,9 @@ export function PropertyEditor({ id }: { id?: string }) {
             <section className="save-panel">
               <p>Review changes before saving.</p>
               <div className="form-actions">
-                <button
-                  type="button"
-                  onClick={() => router.push("/properties")}
-                >
+                <Link className="button" href="/properties">
                   Cancel
-                </button>
+                </Link>
                 <button className="primary" type="submit">
                   {saving ? "Saving…" : "Save property"}
                 </button>
@@ -611,6 +793,34 @@ export function PropertyEditor({ id }: { id?: string }) {
           </aside>
         </fieldset>
       </form>
+      {id && (
+        <PropertyDangerZone
+          id={id}
+          title={form.title}
+          status={form.status}
+          dirty={dirty}
+          onDeleted={() => setBaseline(JSON.stringify(form))}
+          onStatus={(status) => {
+            const next = { ...form, status };
+            setForm(next);
+            setBaseline(JSON.stringify(next));
+          }}
+        />
+      )}
+      {removeIndex !== null && (
+        <ConfirmDialog
+          title="Remove media from this listing?"
+          action="Remove media"
+          destructive
+          onClose={() => setRemoveIndex(null)}
+          onConfirm={() => removeMedia(removeIndex)}
+        >
+          <p>
+            The media will be detached when you save this property. Shared files
+            are retained. The next image becomes the cover if needed.
+          </p>
+        </ConfirmDialog>
+      )}
     </>
   );
 }

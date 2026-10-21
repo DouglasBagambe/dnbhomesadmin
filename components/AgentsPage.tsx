@@ -5,8 +5,22 @@ import { friendlyError } from "../lib/presentation.mjs";
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiPage } from "../lib/api";
 import { Agency, Agent } from "../lib/types";
-import { PageHeader, State } from "./PageState";
+import { useSession } from "./Session";
+import { useFeedback } from "./Feedback";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { ContactLinks } from "./ContactLinks";
+import { PageHeader, State, Badge, Pager } from "./PageState";
 export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
+  const admin = useSession();
+  const { notify } = useFeedback();
+  const [filters, setFilters] = useState({
+    q: "",
+    status: "",
+    verificationStatus: "",
+    page: 1,
+  });
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  const [pending, setPending] = useState<Record<string, FormDataEntryValue>>();
   const noun = agencies ? "agency" : "agent";
   const [items, setItems] = useState<Array<Agent | Agency>>([]);
   const [agencyList, setAgencyList] = useState<Agency[]>([]);
@@ -18,10 +32,11 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
   );
   const load = () =>
     api<ApiPage<Agent | Agency>>(
-      agencies ? "/agencies?limit=100" : "/agents?limit=100",
+      `${agencies ? "/agencies" : "/agents"}?${new URLSearchParams(Object.entries(filters).map(([key, value]) => [key, String(value)]))}`,
     )
       .then((r) => {
         setItems(r.data);
+        setPagination(r.pagination);
         setLoaded(true);
       })
       .catch((e) => setError(friendlyError(e)));
@@ -31,12 +46,19 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
       api<ApiPage<Agency>>("/agencies?limit=100")
         .then((r) => setAgencyList(r.data))
         .catch((e) => setError(friendlyError(e)));
-  }, [agencies]);
+  }, [agencies, filters]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (editing?.status === "active" && values.status === "inactive") {
+      setPending(values);
+      return;
+    }
+    await save(values);
+  }
+  async function save(values: Record<string, FormDataEntryValue>) {
     setBusy(true);
     setError("");
-    const values = Object.fromEntries(new FormData(event.currentTarget));
     try {
       await api(
         `${agencies ? "/agencies" : "/agents"}${editing?._id ? `/${editing._id}` : ""}`,
@@ -49,6 +71,8 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
         },
       );
       setEditing(undefined);
+      setPending(undefined);
+      notify(`${agencies ? "Agency" : "Agent"} saved.`);
       load();
     } catch (e) {
       setError(friendlyError(e));
@@ -56,6 +80,8 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
       setBusy(false);
     }
   }
+  if (admin?.role === "editor")
+    return <State tone="error">Administrator access required.</State>;
   return (
     <>
       <PageHeader
@@ -74,24 +100,126 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
           <button onClick={() => window.location.reload()}>Retry</button>
         </State>
       )}
-      <div className="record-list">
-        {items.map((item) => (
-          <article key={item._id}>
-            <div>
-              <strong>{item.name}</strong>
-              <span>{item.email || "No email"}</span>
-            </div>
-            <span className={`badge ${item.status}`}>{item.status}</span>
-            <span className={`badge ${item.verificationStatus}`}>
-              {item.verificationStatus}
-            </span>
-            <button onClick={() => setEditing(item)}>Edit</button>
-          </article>
-        ))}
+      <form
+        className="toolbar"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void load();
+        }}
+      >
+        <input
+          aria-label={`Search ${noun} records`}
+          placeholder="Search by name"
+          value={filters.q}
+          onChange={(e) =>
+            setFilters({ ...filters, q: e.target.value, page: 1 })
+          }
+        />
+        <select
+          aria-label="Profile status"
+          value={filters.status}
+          onChange={(e) =>
+            setFilters({ ...filters, status: e.target.value, page: 1 })
+          }
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <select
+          aria-label="Profile verification"
+          value={filters.verificationStatus}
+          onChange={(e) =>
+            setFilters({
+              ...filters,
+              verificationStatus: e.target.value,
+              page: 1,
+            })
+          }
+        >
+          <option value="">All verification</option>
+          {["unverified", "pending", "verified", "rejected"].map((v) => (
+            <option key={v}>{v}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() =>
+            setFilters({ q: "", status: "", verificationStatus: "", page: 1 })
+          }
+        >
+          Reset
+        </button>
+      </form>
+      <div className="table-wrap">
+        <table className="responsive-table">
+          <thead>
+            <tr>
+              <th>{agencies ? "Agency" : "Agent"}</th>
+              {!agencies && <th>Agency</th>}
+              <th>Contact</th>
+              <th>Activity</th>
+              <th>Status / verification</th>
+              <th>Manage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item._id}>
+                <td>
+                  <strong>{item.name}</strong>
+                  <code>{item.slug}</code>
+                </td>
+                {!agencies && (
+                  <td data-label="Agency">
+                    {(item as Agent).agency?.name || "Independent"}
+                  </td>
+                )}
+                <td data-label="Contact">
+                  <ContactLinks email={item.email} phone={item.phone} />
+                </td>
+                <td data-label="Activity">
+                  <strong>{item.listingCount ?? 0} properties</strong>
+                  {agencies && (
+                    <span>{(item as Agency).agentCount ?? 0} agents</span>
+                  )}
+                </td>
+                <td data-label="Status / verification">
+                  <div className="badge-stack">
+                    <Badge value={item.status} />
+                    <Badge value={item.verificationStatus} />
+                  </div>
+                </td>
+                <td>
+                  <button onClick={() => setEditing(item)}>Edit {noun}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      <Pager
+        {...pagination}
+        onPage={(page) => setFilters({ ...filters, page })}
+      />
       {!loaded && !error && <State>Loading records…</State>}
       {loaded && !items.length && !error && (
         <State>No {noun} records yet.</State>
+      )}
+      {pending && (
+        <ConfirmDialog
+          title={`Deactivate ${noun}?`}
+          action="Deactivate"
+          destructive
+          onClose={() => setPending(undefined)}
+          onConfirm={() => save(pending)}
+        >
+          <p>
+            Existing property assignments and history remain. Inactive profiles
+            cannot receive new assignments. Review any active listings before
+            proceeding.
+          </p>
+        </ConfirmDialog>
       )}
       {editing !== undefined && (
         <Modal
@@ -133,11 +261,17 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
                     defaultValue={(editing as Agent | null)?.agency?._id || ""}
                   >
                     <option value="">Unassigned</option>
-                    {agencyList.map((a) => (
-                      <option key={a._id} value={a._id}>
-                        {a.name}
-                      </option>
-                    ))}
+                    {agencyList
+                      .filter(
+                        (a) =>
+                          a.status === "active" ||
+                          a._id === (editing as Agent | null)?.agency?._id,
+                      )
+                      .map((a) => (
+                        <option key={a._id} value={a._id}>
+                          {a.name}
+                        </option>
+                      ))}
                   </select>
                 </label>
               </>

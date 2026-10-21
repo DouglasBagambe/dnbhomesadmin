@@ -1,10 +1,12 @@
 "use client";
-import { useState } from "react";
+import Link from "next/link";
+import { useState, useEffect } from "react";
 import { Booking } from "../lib/types";
 import { label, ugandaDate } from "../lib/presentation.mjs";
 import { PageHeader, State, Badge, Pager } from "./PageState";
 import { useQueue } from "./useQueue";
-import { StatusUpdate } from "./StatusUpdate";
+import { StatusNotesDialog } from "./StatusNotesDialog";
+import { ContactLinks } from "./ContactLinks";
 const statuses = [
   "pending",
   "confirmed",
@@ -14,8 +16,13 @@ const statuses = [
   "no_show",
 ];
 export function BookingsPage() {
-  const [q, setQ] = useState("");
-  const [filters, setFilters] = useState({ q: "", status: "", page: 1 });
+  const [filters, setFilters] = useState({ q: "", status: "", page: 1 }),
+    [selected, setSelected] = useState<Booking>();
+  useEffect(() => {
+    const status = new URLSearchParams(location.search).get("status");
+    if (status && statuses.includes(status))
+      queueMicrotask(() => setFilters((current) => ({ ...current, status })));
+  }, []);
   const { result, loading, error, reload } = useQueue<Booking>(
     "/bookings",
     filters,
@@ -25,21 +32,22 @@ export function BookingsPage() {
       <PageHeader
         eyebrow="Viewing operations"
         title="Viewing requests"
-        description="Review requests and explicitly confirm status changes. Times are Uganda time (EAT)."
+        description="Review schedules, contact requesters and maintain a clear operational history. All times are EAT."
       />
       <form
         className="toolbar"
         onSubmit={(e) => {
           e.preventDefault();
-          setFilters({ ...filters, q, page: 1 });
           reload();
         }}
       >
         <input
           aria-label="Search viewing requests"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Reference, guest, email or phone"
+          value={filters.q}
+          onChange={(e) =>
+            setFilters({ ...filters, q: e.target.value, page: 1 })
+          }
+          placeholder="Reference, requester, email or phone"
         />
         <select
           aria-label="Viewing status"
@@ -55,11 +63,17 @@ export function BookingsPage() {
             </option>
           ))}
         </select>
-        <button>Search</button>
+        <button
+          type="button"
+          onClick={() => setFilters({ q: "", status: "", page: 1 })}
+        >
+          Reset
+        </button>
       </form>
       {error && (
         <State tone="error">
-          {error} <button onClick={reload}>Retry</button>
+          {error}
+          <button onClick={reload}>Retry</button>
         </State>
       )}
       {loading && <State>Loading viewing requests…</State>}
@@ -73,10 +87,10 @@ export function BookingsPage() {
               <thead>
                 <tr>
                   <th>Request / property</th>
-                  <th>Requested time · EAT</th>
-                  <th>Guest / contact</th>
-                  <th>Status</th>
-                  <th>Manage</th>
+                  <th>Requester</th>
+                  <th>Requested · EAT</th>
+                  <th>Agent / received</th>
+                  <th>Status / action</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,30 +98,39 @@ export function BookingsPage() {
                   <tr key={item._id}>
                     <td>
                       <strong>{item.reference}</strong>
-                      <span>
-                        {item.property?.title || "Property unavailable"}
-                      </span>
+                      {item.property ? (
+                        <Link href={`/properties/${item.property._id}`}>
+                          {item.property.title}
+                        </Link>
+                      ) : (
+                        <span>
+                          {item.propertySnapshot?.title ||
+                            "Property unavailable"}
+                          {item.propertySnapshot?.deleted ? " · Deleted" : ""}
+                        </span>
+                      )}
                     </td>
-                    <td data-label="Requested time · EAT">
+                    <td data-label="Requester">
+                      <strong>{item.guestName || "Guest"}</strong>
+                      <ContactLinks
+                        email={item.guestEmail}
+                        phone={item.guestPhone}
+                      />
+                    </td>
+                    <td data-label="Requested · EAT">
                       {ugandaDate(item.scheduledAt, true)}
                     </td>
-                    <td data-label="Guest">
-                      <strong>{item.guestName || "Guest"}</strong>
-                      <span>{item.guestEmail}</span>
-                      <span>{item.guestPhone}</span>
+                    <td data-label="Agent / received">
+                      <strong>{item.agent?.name || "Unassigned"}</strong>
+                      <span>{ugandaDate(item.createdAt, true)}</span>
                     </td>
-                    <td data-label="Status">
-                      <Badge value={item.status} />
-                    </td>
-                    <td>
-                      <StatusUpdate
-                        key={`${item._id}-${item.status}`}
-                        status={item.status}
-                        options={statuses}
-                        path={`/bookings/${item._id}/status`}
-                        name={item.reference}
-                        onSaved={reload}
-                      />
+                    <td data-label="Status / action">
+                      <div className="badge-stack">
+                        <Badge value={item.status} />
+                        <button onClick={() => setSelected(item)}>
+                          Open request
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -119,6 +142,50 @@ export function BookingsPage() {
             onPage={(page) => setFilters({ ...filters, page })}
           />
         </>
+      )}
+      {selected && (
+        <StatusNotesDialog
+          key={selected._id}
+          title={`Viewing ${selected.reference}`}
+          status={selected.status}
+          notes={selected.adminNotes}
+          options={statuses}
+          path={`/bookings/${selected._id}/status`}
+          viewing
+          onClose={() => setSelected(undefined)}
+          onSaved={reload}
+        >
+          <dl className="record-details">
+            <dt>Property</dt>
+            <dd>
+              {selected.property ? (
+                <Link href={`/properties/${selected.property._id}`}>
+                  {selected.property.title}
+                </Link>
+              ) : (
+                selected.propertySnapshot?.title || "Unavailable"
+              )}
+            </dd>
+            <dt>Requested time · EAT</dt>
+            <dd>{ugandaDate(selected.scheduledAt, true)}</dd>
+            <dt>Received · EAT</dt>
+            <dd>{ugandaDate(selected.createdAt, true)}</dd>
+            <dt>Assigned agent</dt>
+            <dd>{selected.agent?.name || "Unassigned"}</dd>
+            <dt>Requester</dt>
+            <dd>
+              {selected.guestName}
+              <ContactLinks
+                email={selected.guestEmail}
+                phone={selected.guestPhone}
+              />
+            </dd>
+            <dt>Requester notes</dt>
+            <dd className="preserve-lines">
+              {selected.notes || "No additional notes"}
+            </dd>
+          </dl>
+        </StatusNotesDialog>
       )}
     </>
   );

@@ -1,12 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Inquiry } from "../lib/types";
 import { label, ugandaDate } from "../lib/presentation.mjs";
 import { PageHeader, State, Badge, Pager } from "./PageState";
 import { useQueue } from "./useQueue";
-import { StatusUpdate } from "./StatusUpdate";
+import { StatusNotesDialog } from "./StatusNotesDialog";
+import { ContactLinks } from "./ContactLinks";
 const statuses = ["new", "in_progress", "resolved", "spam"];
 export function InquiriesPage() {
+  const [selected, setSelected] = useState<Inquiry>();
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState({
     q: "",
@@ -14,6 +16,11 @@ export function InquiriesPage() {
     status: "",
     page: 1,
   });
+  useEffect(() => {
+    const status = new URLSearchParams(location.search).get("status");
+    if (status && statuses.includes(status))
+      queueMicrotask(() => setFilters((current) => ({ ...current, status })));
+  }, []);
   const { result, error, loading, reload } = useQueue<Inquiry>(
     "/inquiries",
     filters,
@@ -75,6 +82,28 @@ export function InquiriesPage() {
       {!loading && !error && !result?.data.length && (
         <State>No inquiries match these filters.</State>
       )}
+      {selected && (
+        <StatusNotesDialog
+          title={`Inquiry from ${selected.name}`}
+          status={selected.status}
+          notes={selected.adminNotes}
+          options={statuses}
+          path={`/inquiries/${selected._id}`}
+          onClose={() => setSelected(undefined)}
+          onSaved={reload}
+        >
+          <div className="inquiry-context">
+            <strong>
+              {selected.subject ||
+                [selected.role, selected.propertyType, selected.location]
+                  .filter(Boolean)
+                  .join(" · ")}
+            </strong>
+            <ContactLinks email={selected.email} phone={selected.phone} />
+            <p className="preserve-lines">{selected.message}</p>
+          </div>
+        </StatusNotesDialog>
+      )}
       <div className="inquiry-list">
         {!error &&
           result?.data.map((item) => (
@@ -82,9 +111,7 @@ export function InquiriesPage() {
               <header>
                 <div>
                   <strong>{item.name}</strong>
-                  <span>
-                    {[item.email, item.phone].filter(Boolean).join(" · ")}
-                  </span>
+                  <ContactLinks email={item.email} phone={item.phone} />
                 </div>
                 <div className="inquiry-meta">
                   <Badge value={item.status} />
@@ -107,14 +134,9 @@ export function InquiriesPage() {
               </div>
               <p className="inquiry-message">{item.message}</p>
               <footer>
-                <StatusUpdate
-                  key={`${item._id}-${item.status}`}
-                  status={item.status}
-                  options={statuses}
-                  path={`/inquiries/${item._id}`}
-                  name={`inquiry from ${item.name}`}
-                  onSaved={reload}
-                />
+                <button onClick={() => setSelected(item)}>
+                  Open inquiry & notes
+                </button>
               </footer>
             </article>
           ))}
