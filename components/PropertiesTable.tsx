@@ -16,6 +16,7 @@ const defaults = {
   purpose: "",
   type: "",
   verificationStatus: "",
+  availabilityStatus: "",
   featured: "",
   agent: "",
   agency: "",
@@ -25,6 +26,13 @@ const defaults = {
   page: 1,
 };
 const options: Record<string, string[]> = {
+  availabilityStatus: [
+    "available",
+    "reserved",
+    "rented",
+    "sold",
+    "unavailable",
+  ],
   status: ["active", "draft", "pending_review", "published", "archived"],
   purpose: ["rent", "sale", "short_stay"],
   type: [
@@ -175,6 +183,11 @@ export function PropertiesTable() {
           <div className="filter-grid">
             {select("purpose", "Purpose", options.purpose)}
             {select("type", "Property type", options.type)}
+            {select(
+              "availabilityStatus",
+              "Availability",
+              options.availabilityStatus,
+            )}
             {select(
               "verificationStatus",
               "Verification",
@@ -386,6 +399,17 @@ export function PropertiesTable() {
                     <td data-label="Review / status">
                       <div className="badge-stack">
                         <Badge value={item.status} />
+                        {item.availabilityStatus && (
+                          <Badge value={item.availabilityStatus} />
+                        )}
+                        {item.availabilityVisibleUntil && (
+                          <span className="muted">
+                            {Date.parse(item.availabilityVisibleUntil) <=
+                            Date.now()
+                              ? "Hidden from public browsing"
+                              : `Public until ${ugandaDate(item.availabilityVisibleUntil, true)}`}
+                          </span>
+                        )}
                         <Badge value={item.verificationStatus} />
                       </div>
                     </td>

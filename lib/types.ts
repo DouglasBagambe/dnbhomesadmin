@@ -43,6 +43,14 @@ export type Property = {
   featured: boolean;
   verificationStatus: string;
   status: "draft" | "pending_review" | "published" | "archived";
+  availabilityStatus?:
+    | "available"
+    | "reserved"
+    | "rented"
+    | "sold"
+    | "unavailable";
+  availabilityChangedAt?: string;
+  availabilityVisibleUntil?: string;
   viewCount: number;
   updatedAt: string;
 };

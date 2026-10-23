@@ -12,7 +12,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiPage } from "../lib/api";
 import { Agent, Agency, Media, Property } from "../lib/types";
-import { friendlyError, label } from "../lib/presentation.mjs";
+import { friendlyError, label, ugandaDate } from "../lib/presentation.mjs";
 import { PageHeader, State } from "./PageState";
 type Form = {
   title: string;
@@ -39,6 +39,7 @@ type Form = {
   agency: string;
   verificationStatus: string;
   status: string;
+  availabilityStatus: string;
   featured: boolean;
   media: Media[];
 };
@@ -67,6 +68,7 @@ const blank: Form = {
   agency: "",
   verificationStatus: "unverified",
   status: "draft",
+  availabilityStatus: "available",
   featured: false,
   media: [],
 };
@@ -82,6 +84,10 @@ export function PropertyEditor({ id }: { id?: string }) {
   const [removeIndex, setRemoveIndex] = useState<number | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [savedAvailability, setSavedAvailability] = useState<{
+    status?: string;
+    until?: string;
+  }>({});
   const [loadFailed, setLoadFailed] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -116,6 +122,10 @@ export function PropertyEditor({ id }: { id?: string }) {
     if (id)
       api<{ data: Property }>(`/properties/${id}`)
         .then(({ data }) => {
+          setSavedAvailability({
+            status: data.availabilityStatus,
+            until: data.availabilityVisibleUntil,
+          });
           const next: Form = {
             title: data.title,
             description: data.description,
@@ -141,6 +151,7 @@ export function PropertyEditor({ id }: { id?: string }) {
             agency: data.agency?._id || "",
             verificationStatus: data.verificationStatus,
             status: data.status,
+            availabilityStatus: data.availabilityStatus ?? "",
             featured: data.featured,
             media: data.media || [],
           };
@@ -271,6 +282,9 @@ export function PropertyEditor({ id }: { id?: string }) {
         ? {
             verificationStatus: form.verificationStatus,
             featured: form.featured,
+            ...(form.availabilityStatus
+              ? { availabilityStatus: form.availabilityStatus }
+              : {}),
           }
         : {}),
       ...(!canPublish && ["published", "archived"].includes(form.status)
@@ -289,6 +303,10 @@ export function PropertyEditor({ id }: { id?: string }) {
         id ? `/properties/${id}` : "/properties",
         { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) },
       );
+      setSavedAvailability({
+        status: result.data.availabilityStatus,
+        until: result.data.availabilityVisibleUntil,
+      });
       setBaseline(JSON.stringify(form));
       notify("Property saved.");
       router.replace(`/properties/${result.data._id}`);
@@ -689,6 +707,51 @@ export function PropertyEditor({ id }: { id?: string }) {
           <aside className="editor-rail">
             <section>
               <header>
+                <h2>Availability</h2>
+              </header>
+              <div className="form-grid">
+                <label>
+                  Availability
+                  <select
+                    aria-label="Availability"
+                    value={form.availabilityStatus}
+                    disabled={!canPublish}
+                    onChange={(e) => set("availabilityStatus", e.target.value)}
+                  >
+                    {!form.availabilityStatus && (
+                      <option value="">Not set (legacy listing)</option>
+                    )}
+                    {[
+                      "available",
+                      "reserved",
+                      "rented",
+                      "sold",
+                      "unavailable",
+                    ].map((value) => (
+                      <option key={value} value={value}>
+                        {label(value)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {savedAvailability.status === form.availabilityStatus &&
+                  savedAvailability.until && (
+                    <p className="muted">
+                      Public visibility ends{" "}
+                      {ugandaDate(savedAvailability.until, true)} (Uganda time).
+                      The property stays in this inventory after it is hidden.
+                    </p>
+                  )}
+                <p className="muted">
+                  Reserved, rented, sold and unavailable homes cannot receive
+                  new viewing requests. Rented and sold homes stay public for 14
+                  days, then are hidden automatically. Existing requests remain
+                  in Viewings.
+                </p>
+              </div>
+            </section>
+            <section>
+              <header>
                 <h2>Publishing</h2>
               </header>
               <div className="form-grid">
@@ -716,8 +779,8 @@ export function PropertyEditor({ id }: { id?: string }) {
                 </label>
                 {!canPublish && (
                   <p className="muted">
-                    Publishing, verification and featuring require an
-                    administrator.
+                    Publishing, availability, verification and featuring require
+                    an administrator.
                   </p>
                 )}
               </div>

@@ -557,6 +557,7 @@ th:first-child {
   white-space: normal;
   text-transform: capitalize;
 }
+.badge.available,
 .badge.published,
 .badge.verified,
 .badge.confirmed,
@@ -567,6 +568,7 @@ th:first-child {
   color: var(--success);
   border-color: transparent;
 }
+.badge.reserved,
 .badge.pending,
 .badge.pending_review,
 .badge.new,
