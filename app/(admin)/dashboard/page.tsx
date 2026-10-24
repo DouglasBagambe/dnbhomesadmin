@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "../../../components/BrandLoading";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "../../../lib/api";
@@ -77,7 +78,7 @@ export default function Dashboard() {
           </article>
         ))}
       </section>
-      {!data && !error && <State>Loading operations…</State>}
+      {!data && !error && <BrandLoading label="Loading operations…" />}
       {data && (
         <section className="operation-panel">
           <div>

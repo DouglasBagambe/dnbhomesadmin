@@ -1464,3 +1464,18 @@ button.danger {
 .queue-links {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
+
+/* Shared DNB mark: quiet 3.2-second draw/hold/fade, with a still reduced-motion state. */
+.brand-loading { display:flex; align-items:center; justify-content:center; min-height:144px; color:var(--ink); }
+.brand-loading svg { display:block; width:60px; height:52px; overflow:visible; }
+.brand-loading-inline { display:inline-flex; min-height:0; vertical-align:middle; }
+.brand-loading-inline svg { width:24px; height:24px; }
+.brand-loading-cycle { animation:dnb-loading-cycle 3.2s ease-in-out infinite; }
+.brand-loading-draw { stroke-dasharray:1 2; animation:dnb-loading-draw 3.2s cubic-bezier(.45,0,.3,1) infinite; }
+.brand-loading-crossings { animation:dnb-loading-crossings 3.2s ease-in-out infinite; }
+@keyframes dnb-loading-draw { 0%,8% { stroke-dashoffset:1.02; } 52%,100% { stroke-dashoffset:0; } }
+@keyframes dnb-loading-crossings { 0%,42% { opacity:0; } 54%,100% { opacity:1; } }
+@keyframes dnb-loading-cycle { 0% { opacity:0; } 10%,76% { opacity:1; } 95%,100% { opacity:0; } }
+@media (prefers-reduced-motion:reduce) {
+  .brand-loading-cycle,.brand-loading-draw,.brand-loading-crossings { animation:none; opacity:1; stroke-dashoffset:0; }
+}

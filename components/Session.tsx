@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import { friendlyError } from "../lib/presentation.mjs";
 import {
   createContext,
@@ -43,7 +44,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   if (!admin)
     return (
       <main className="admin-main">
-        <State>Checking your session…</State>
+        <BrandLoading label="Checking your session…" />
       </main>
     );
   return (

@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "../../../components/BrandLoading";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { friendlyError, label } from "../../../lib/presentation.mjs";
@@ -89,7 +90,7 @@ export default function Admins() {
           <button onClick={() => void load()}>Retry</button>
         </State>
       )}
-      {!loaded && !error && <State>Loading administrators…</State>}
+      {!loaded && !error && <BrandLoading label="Loading administrators…" />}
       <div className="table-wrap">
         <table className="responsive-table">
           <thead>

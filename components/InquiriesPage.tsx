@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import { useState, useEffect } from "react";
 import { Inquiry } from "../lib/types";
 import { label, ugandaDate } from "../lib/presentation.mjs";
@@ -78,7 +79,7 @@ export function InquiriesPage() {
           {error} <button onClick={reload}>Retry</button>
         </State>
       )}
-      {loading && <State>Loading inquiries…</State>}
+      {loading && <BrandLoading label="Loading inquiries…" />}
       {!loading && !error && !result?.data.length && (
         <State>No inquiries match these filters.</State>
       )}

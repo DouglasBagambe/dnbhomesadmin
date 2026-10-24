@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../lib/api";
@@ -145,7 +146,7 @@ export function PropertyDangerZone({
                 <p className="muted">{dependencies.historyPolicy}</p>
               </>
             ) : (
-              !error && <State>Checking dependencies…</State>
+              !error && <BrandLoading label="Checking dependencies…" />
             )}
             {error && (
               <State tone="error">

@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Property, Agent, Agency } from "../lib/types";
@@ -286,7 +287,7 @@ export function PropertiesTable() {
           <button onClick={reload}>Retry</button>
         </State>
       )}
-      {loading && <State>Loading properties…</State>}
+      {loading && <BrandLoading label="Loading properties…" />}
       {!loading && !error && !result?.data.length && (
         <State>
           No properties match these filters. Reset filters or create a listing.

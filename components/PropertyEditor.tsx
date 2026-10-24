@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import Link from "next/link";
 import { UnsavedChanges } from "./UnsavedChanges";
 import { PropertyDangerZone } from "./PropertyDangerZone";
@@ -317,7 +318,7 @@ export function PropertyEditor({ id }: { id?: string }) {
       setSaving(false);
     }
   }
-  if (loading) return <State>Loading property…</State>;
+  if (loading) return <BrandLoading label="Loading property…" />;
   if (loadFailed)
     return (
       <State tone="error">

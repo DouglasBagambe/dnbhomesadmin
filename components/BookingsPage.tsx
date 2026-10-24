@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Booking } from "../lib/types";
@@ -76,7 +77,7 @@ export function BookingsPage() {
           <button onClick={reload}>Retry</button>
         </State>
       )}
-      {loading && <State>Loading viewing requests…</State>}
+      {loading && <BrandLoading label="Loading viewing requests…" />}
       {!loading && !error && !result?.data.length && (
         <State>No viewing requests match these filters.</State>
       )}

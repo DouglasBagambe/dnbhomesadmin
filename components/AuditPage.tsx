@@ -1,4 +1,5 @@
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import { useState } from "react";
 import { AuditEvent } from "../lib/types";
 import { ugandaDate } from "../lib/presentation.mjs";
@@ -119,7 +120,7 @@ export function AuditPage() {
           <button onClick={reload}>Retry</button>
         </State>
       )}
-      {loading && <State>Loading audit history…</State>}
+      {loading && <BrandLoading label="Loading audit history…" />}
       {!loading && !error && !result?.data.length && (
         <State>No audit events match these filters.</State>
       )}

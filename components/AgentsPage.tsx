@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
+import { BrandLoading } from "./BrandLoading";
 import { Modal } from "./Modal";
 import { friendlyError } from "../lib/presentation.mjs";
 import { FormEvent, useEffect, useState } from "react";
@@ -202,7 +203,7 @@ export function AgentsPage({ agencies = false }: { agencies?: boolean }) {
         {...pagination}
         onPage={(page) => setFilters({ ...filters, page })}
       />
-      {!loaded && !error && <State>Loading records…</State>}
+      {!loaded && !error && <BrandLoading label="Loading records…" />}
       {loaded && !items.length && !error && (
         <State>No {noun} records yet.</State>
       )}
